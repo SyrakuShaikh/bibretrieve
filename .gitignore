@@ -1,2 +1,4 @@
 *.elc
 *~
+bibretrieve-autoloads.el
+bibretrieve-pkg.el
