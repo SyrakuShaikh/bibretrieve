@@ -77,7 +77,7 @@ started with the command \\[bibretrieve-get].")
  a / A      Put all (marked) entries into current buffer.")
 
 ;; Copied from bibsnarf
-(defun bibretrieve-msn-create-url (author title)
+(defun bibretrieve-msn-create-url (author title journal)
   (let* ((pairs `(("bdlback" . "r=1")
 		  ("dr" . "all")
 		  ("l" . "20")
@@ -103,7 +103,7 @@ started with the command \\[bibretrieve-get].")
               (push (match-string 0) matches)))))
       matches)))
 
-(defun bibretrieve-zbm-http (author title)
+(defun bibretrieve-zbm-http (author title journal)
   (let* ((url (concat "https://zbmath.org/?" (mm-url-encode-www-form-urlencoded `(("au" . ,author) ("ti" . ,title)))))
 	 (buffer (generate-new-buffer (generate-new-buffer-name "bibretrieve-results-")))
 	 list-of-bib-urls
@@ -122,7 +122,7 @@ started with the command \\[bibretrieve-get].")
 	)
       buffer)))
 
-(defun bibretrieve-arxiv-http (author title)
+(defun bibretrieve-arxiv-http (author title journal)
   (let* ((url (concat "http://adsabs.harvard.edu/cgi-bin/nph-abs_connect?"
 	  (mm-url-encode-www-form-urlencoded `(("db_key" . "PRE")
 				       ("aut_req" . "YES")
@@ -168,14 +168,14 @@ started with the command \\[bibretrieve-get].")
 	  (replace-match (concat "@misc{arxiv:" arxivid ","))))
       buffer)))
 
-(defun bibretrieve-mrl-create-url (author title)
+(defun bibretrieve-mrl-create-url (author title journal)
   (let* ((pairs `(("ti" . ,title)
 		  ("au" . ,author)
 		  ("format" . "bibtex"))))
 	 (concat "http://www.ams.org/mrlookup?" (mm-url-encode-www-form-urlencoded pairs))))
 
 ;; Modified from bibsnarf
-(defun bibretrieve-citebase-create-url (author title)
+(defun bibretrieve-citebase-create-url (author title journal)
   (let* ((query (concat author " " title))
 	 (pairs `(("submitted" . "Search")
 		  ("query" . ,query)
@@ -188,7 +188,7 @@ started with the command \\[bibretrieve-get].")
 
 ;; Copied from bibsnarf
 ;; No more used
-(defun bibretrieve-spires-rawcmd (author title)
+(defun bibretrieve-spires-rawcmd (author title journal)
   (cond
    ((zerop (length author)) (concat "T+" title))
    ((zerop (length title)) (concat "A+" author))
@@ -196,14 +196,14 @@ started with the command \\[bibretrieve-get].")
 
 ;; Copied from bibsnarf
 ;; No more used
-(defun bibretrieve-spires-create-url (author title)
-  (let* ((rawcmd (bibretrieve-spires-rawcmd author title))
+(defun bibretrieve-spires-create-url (author title journal)
+  (let* ((rawcmd (bibretrieve-spires-rawcmd author title journal))
 	 (pairs `(("rawcmd" . ,rawcmd)
 		  ("FORMAT" . "wwwbriefbibtex")
 		  ("SEQUENCE" . ""))))
   (concat "http://www.slac.stanford.edu/spires/find/hep/www?" (mm-url-encode-www-form-urlencoded pairs))))
 
-(defun bibretrieve-inspire-create-url (author title)
+(defun bibretrieve-inspire-create-url (author title journal)
   (let* ((pairs `(("ln" . "en")
 		  ("as" . "1")
 		  ("m1" . "a")
@@ -212,15 +212,17 @@ started with the command \\[bibretrieve-get].")
 		  ("op2" . "a")
 		  ("m3" . "a")
 		  ("action_search" . "Search")
-		  ("sf" . "year")
+		  ("sf" . "earliestdate")
 		  ("so" . "d")
 		  ("sc" . "0")
 		  ("p1" . ,author)
 		  ("f1" . "author")
 		  ("p2" . ,title)
 		  ("f2" . "title")
+		  ("p3" . ,journal)
+		  ("f3" . "journal")
 		  ("of" . "hx")
-		  ("rg" . "100"))))
+		  ("rg" . "120"))))
   (concat "http://inspirehep.net/search?" (mm-url-encode-www-form-urlencoded pairs))))
 
 (defun bibretrieve-http (url)
@@ -231,17 +233,17 @@ started with the command \\[bibretrieve-get].")
       (mm-url-insert-file-contents url))
     buffer))
 
-(defun bibretrieve-retrieve-backend (author title backend timeout)
+(defun bibretrieve-retrieve-backend (author title journal backend timeout)
   "Call the backend BACKEND with AUTHOR, TITLE and TIMEOUT. Return buffer with results"
   (let* ((function-backend-simple (intern (concat "bibretrieve-" backend "-create-url")))
     (function-backend (intern (concat "bibretrieve-" backend "-http"))))
     (if (functionp function-backend-simple)
 	      (with-timeout (timeout) (bibretrieve-http (funcall function-backend-simple author title)))
       (if (functionp function-backend)
-	  (with-timeout (timeout) (funcall function-backend author title)))
+	  (with-timeout (timeout) (funcall function-backend author title journal)))
 )))
       
-(defun bibretrieve-retrieve (author title backends &optional newtimeout)
+(defun bibretrieve-retrieve (author title journal backends &optional newtimeout)
   "Search AUTHOR and TITLE on BACKENDS.
 If NEWTIMEOUT is given, this replaces the timeout for all backends.
 Returns list of buffers with results."
@@ -256,7 +258,7 @@ Returns list of buffers with results."
 	;; 	       (add-to-list 'buffers buffer)
 	;; 	     (add-to-list 'failed backend)))
 	;;   (add-to-list 'not-found backend))))
-	     (buffer (bibretrieve-retrieve-backend author title backend timeout)))
+	     (buffer (bibretrieve-retrieve-backend author title journal backend timeout)))
 	(if (bufferp buffer)
 	    (add-to-list 'buffers buffer)
 	  (add-to-list 'failed backend))))
@@ -267,10 +269,11 @@ Returns list of buffers with results."
     buffers))
 
 (defun bibretrieve-prompt-and-retrieve (&optional arg)
-  "Prompts for author and title and retrieves.
+  "Prompts for author and title and journal and retrieves.
 ARG is the optional arg."
   (let* ((author (read-string "Author: "))
 	 (title (read-string "Title: "))
+	 (journal (read-string "Journal: "))
 	 backend backends timeout)
     (when arg
       (if (integerp arg)
@@ -284,7 +287,7 @@ ARG is the optional arg."
 		 'bibretrieve-installed-backends)
 		(t
 		 `(,backend))))
-    (bibretrieve-retrieve author title backends timeout))
+    (bibretrieve-retrieve author title journal backends timeout))
   )
 
 (defun bibretrieve-find-bibliography-file ()
